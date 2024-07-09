@@ -21,10 +21,6 @@ auto_search_results = 10
 review_search_results = 5
 
 # Global variables
-count = 0
-not_found = 0
-invalid_files_count = 0
-skipped_files = 0
 untagged_files = []
 tagged_files = []
 invalid_files = []
@@ -37,16 +33,14 @@ def log(message):
     log_file.write(message + "\n")
 
 def print_stats():
-    print(Fore.green + "Tags written for " + str(count) + " files" + Style.reset)
-    print(Fore.yellow + "Not found for " + str(not_found) + " files" + Style.reset)
-    print(Fore.red + "Invalid files: " + str(invalid_files_count) + Style.reset)
-    print(Fore.pink_1 + "Skipped files: " + str(skipped_files) + Style.reset)
+    print(Fore.green + "Tagged files: " + str(len(tagged_files)) + Style.reset)
+    print(Fore.yellow + "Untagged files: " + str(len(untagged_files)) + Style.reset)
+    print(Fore.red + "Invalid files: " + str(len(invalid_files)) + Style.reset)
 
 def name(message):
     return Style.reset + Back.cyan + message + Style.reset
 
-def spotify_complete_tags(song_name, artist_name, audiofile, file, folder_path):
-    global count, not_found
+def spotify_complete_tags(song_name, artist_name, audiofile, file):
     # Search the song on spotify
 
     try:
@@ -54,7 +48,6 @@ def spotify_complete_tags(song_name, artist_name, audiofile, file, folder_path):
     except:
         print(Fore.red + "Error searching for song: " + song_name + " by " + artist_name + Style.reset)
         log("Error searching for song: " + song_name + " by " + artist_name)
-        not_found += 1
         untagged_files.append(file)
         return
 
@@ -76,15 +69,39 @@ def spotify_complete_tags(song_name, artist_name, audiofile, file, folder_path):
             track_found = True
 
             # Write audio file tags
-            write_tags(audiofile, folder_path, file, result)
+            write_tags(audiofile, file, result)
 
             break
 
     if not track_found:
-        not_found += 1
         log("Song "+ song_name +" by "+ artist_name+" was not matched.")
         print(Fore.red + "Song " + Style.reset + Back.red + song_name + Style.reset + Fore.red + " by "+ Style.reset + Back.red + artist_name + Style.reset + Fore.red + " was not matched." + Style.reset)
         untagged_files.append(file)
+
+
+def write_tags(audiofile, file, result):
+
+    # if audiofile.tag is None:
+    audiofile.initTag()
+
+    audiofile.tag.artist = result['artists'][0]['name']
+    audiofile.tag.album = result['album']['name']
+    audiofile.tag.title = result['name']
+    audiofile.tag.track_num = result['track_number']
+    audiofile.tag.comments.set("Song metadata fetched from Spotify using Spotigrabber by papastam")
+
+    # Write image
+    response = urllib.request.urlopen(result['album']['images'][0]['url'])
+    imagedata = response.read()
+    audiofile.tag.images.set(3, imagedata, "image/jpeg", u"cover")
+    audiofile.tag.save()
+
+    log("Tags written for " + result['name'] + " by " + result['artists'][0]['name'])
+    print(Fore.green + "Tags written for " + Style.reset + Back.green + result['name'] + Style.reset + Fore.green +  " by " + Style.reset + Back.green + result['artists'][0]['name'] + Style.reset)
+
+    rename_file(file, os.path.dirname(file) + '/' + str(result['name'] + " - " + result['artists'][0]['name'] + ".mp3").replace("/", "-"))
+
+    tagged_files.append(file)
 
 def rename_file( file, new_name):
     # Check if file exists
@@ -107,43 +124,19 @@ def rename_file( file, new_name):
             os.rename(file, new_name)
             log("File renamed to: " + new_name)
 
-def write_tags(audiofile, folder_path, file, result):
-    global count
+def search_spotify():
+    global untagged_files
 
-    # if audiofile.tag is None:
-    audiofile.initTag()
+    if len(untagged_files) == 0:
+        print(Fore.red + "No untagged files to search, scan all files first" + Style.reset)
+        return
 
-    audiofile.tag.artist = result['artists'][0]['name']
-    audiofile.tag.album = result['album']['name']
-    audiofile.tag.title = result['name']
-    audiofile.tag.track_num = result['track_number']
-    audiofile.tag.comments.set("Song metadata fetched from Spotify using Spotigrabber by papastam")
-
-    # Write image
-    response = urllib.request.urlopen(result['album']['images'][0]['url'])
-    imagedata = response.read()
-    audiofile.tag.images.set(3, imagedata, "image/jpeg", u"cover")
-    audiofile.tag.save()
-
-    log("Tags written for " + result['name'] + " by " + result['artists'][0]['name'])
-    print(Fore.green + "Tags written for " + Style.reset + Back.green + result['name'] + Style.reset + Fore.green +  " by " + Style.reset + Back.green + result['artists'][0]['name'] + Style.reset)
-
-    rename_file(file, folder_path + '/' + str(result['name'] + " - " + result['artists'][0]['name'] + ".mp3").replace("/", "-"))
-
-    count += 1
-
-
-def scan_spotify(folder_path):
-    global count, not_found, invalid_files_count, untagged_files
-
-    if enable_recursion:
-        print(Fore.cyan + "Scanning folder: " + folder_path + Style.reset)
-
-    for file_name in os.listdir(folder_path):
-        if not os.path.isfile(folder_path + '/' + file_name):
+    # INF LOOP
+    for file in untagged_files:
+        if not os.path.isfile(file):
+            print(Fore.red + "File " + file + " does not exist. Skipping this file" + Style.reset)
             continue
 
-        file = folder_path + file_name
         log("-----------------Processing file: " + file + "-----------------")
         if file.endswith('.mp3'):
             # Get the song name from mp3 tag
@@ -157,7 +150,6 @@ def scan_spotify(folder_path):
             if audiofile.tag is None:
                 print(Fore.red + "File " + file + " has no tags. Skipping this file" + Style.reset)
                 untagged_files.append(file)
-                not_found += 1
                 continue
 
             try:
@@ -170,7 +162,6 @@ def scan_spotify(folder_path):
             if audiofile.tag.title is None or audiofile.tag.artist is None:
                 print(Fore.red + "File " + file + " has no tags. Skipping this file" + Style.reset)
                 untagged_files.append(file)
-                not_found += 1
                 continue
 
             song_name = audiofile.tag.title.split('/')[0].split('(')[0].split("ft.")[0].split("feat.")[0].strip()
@@ -180,64 +171,25 @@ def scan_spotify(folder_path):
             log("Artist name: " + artist_name)
             log("Searching for song: " + song_name+" "+artist_name)
 
-            spotify_complete_tags(song_name, artist_name, audiofile, file, folder_path)
+            spotify_complete_tags(song_name, artist_name, audiofile, file)
            
 
         else:
             untagged_files.append(file)
-            invalid_files_count += 1
             print(Fore.red + "File " + file + " is not an mp3 file"+Style.reset)
 
         log("-----------------End of file: " + file + "-----------------")
 
-    if enable_recursion:
-        for folder in os.listdir(folder_path):
-            if os.path.isdir(folder_path + folder):
-                scan_spotify(folder_path + folder + "/")
+    print_stats()
 
-def ask_for_toggles():
-    global enable_recursion, enable_rename
-    print("Enable recursive scan? (y/n)")
-    inp = input()
-    if inp == 'n':
-        enable_recursion = False
-
-    print("Enable renaming files? (y/n)")
-    inp = input()
-    if inp == 'n':
-        enable_rename = False
-
-def review_missing_songs():
-    global count, not_found, untagged_files
+def manual_search():
+    global untagged_files
 
     if len(untagged_files) == 0:
-        print(Fore.green + "No missing songs to review" + Style.reset)
-        return
-
-    # ------------------- Mising songs review -------------------
-    print(Fore.cyan + "Do you want to review the missing songs? (y/n)" + Style.reset)
-    inp = input()
-
-    if inp == 'n':
-        for file in untagged_files:
-            audiofile = eyed3.load(file)
-
-            if audiofile is None:
-                log("File " + file + " returned error from eyed3")
-                print(Fore.red + "File " + file + " returned error from eyed3" + Style.reset)
-                continue
-
-            if audiofile.tag is None:
-                audiofile.initTag()
-
-            audiofile.tag.comments.set("Song metadata was not found using Spotigrabber by papastam")
-            audiofile.tag.save()
+        print(Fore.red + "No untagged files to review, scan all files first" + Style.reset)
         return
     
     log("Reviewing missing songs")
-    if len(untagged_files) == 0:
-        print(Back.green + "No missing songs to review" + Style.reset)
-        return
     while len(untagged_files) > 0:
         file = untagged_files.pop()
         if file.endswith('.mp3'):
@@ -255,10 +207,7 @@ def review_missing_songs():
 
                 audiofile.initTag()
 
-                print(Fore.red + "File " + file + " has no tags. Search using filename:" + os.path.basename(file).split('.')[0] + "? (y/n)" + Style.reset)
-                inp = input()
-                if inp == 'n':
-                    continue
+                print(Fore.red + "File " + file + " has no tags. Searching using filename:" + os.path.basename(file).split('.')[0] + Style.reset)
 
             
             else:
@@ -271,40 +220,15 @@ def review_missing_songs():
                 print(Fore.magenta + "File name: " + Style.reset + Back.magenta + file + Style.reset)
                 print(Fore.magenta + "+++++++++++++++++++++++++++++++++++++++++++++++" + Style.reset)
 
-                # print(Fore.cyan + "Search song on Spotify? (y/n)" + Style.reset)
-                # inp = input()
-                # if inp == 'n':
-                #     continue
+            querry = song_name + " " + artist_name
 
-            results = sp.search(q=song_name+" "+artist_name, limit=review_search_results)
+            while True:
+                results = sp.search(q=querry, limit=review_search_results)
 
-
-            print(Fore.cyan + "Results for search: " + song_name + artist_name + Style.reset)
-            print(Fore.cyan + "0: Enter search manually" + Style.reset)
-            track_found = False
-            res_count = 0
-            for result in results['tracks']['items']:
-                print(Fore.cyan + str(res_count+1) + ": " + name(result['name']) + Fore.cyan +  " by " + name(result['artists'][0]['name']) + Style.reset)
-                res_count += 1
-
-            print(Fore.cyan + "Enter the number of the song you want to accept:" + Style.reset)
-            inp = input()
-
-            if (inp.isnumeric() and int(inp) > 0 and int(inp) < review_search_results+1) or fast_review:
-                track_found = True
-                # Write audio file tags
-                write_tags(audiofile,os.path.dirname(os.path.realpath(file)), file, results['tracks']['items'][int(inp)-1])
-
-                not_found -= 1
-                continue
-                
-            elif inp.isnumeric() and int(inp) == 0:
-                print(Fore.cyan + "Enter search term:" + Style.reset)
-                search = input()
-
-                results = sp.search(q=search, limit=review_search_results)
-
-                print(Fore.cyan + "Results for search: " + search + Style.reset)
+                # Print menu
+                print(Fore.cyan + "Results for search: " + song_name + " " + artist_name + Style.reset)
+                print(Fore.cyan + "0: Enter search manually" + Style.reset)
+                track_found = False
                 res_count = 0
                 for result in results['tracks']['items']:
                     print(Fore.cyan + str(res_count+1) + ": " + name(result['name']) + Fore.cyan +  " by " + name(result['artists'][0]['name']) + Style.reset)
@@ -313,12 +237,19 @@ def review_missing_songs():
                 print(Fore.cyan + "Enter the number of the song you want to accept:" + Style.reset)
                 inp = input()
 
-                if (inp.isnumeric() and int(inp) > 0 and int(inp) < auto_search_results) or fast_review:
+                if (inp.isnumeric() and int(inp) > 0 and int(inp) < review_search_results+1) or fast_review:
                     track_found = True
                     # Write audio file tags
                     write_tags(audiofile,os.path.dirname(os.path.realpath(file)), file, results['tracks']['items'][int(inp)-1])
-                    not_found -= 1
-                    continue
+
+                    break
+                elif inp == '0':
+                    print(Fore.cyan + "Enter search term:" + Style.reset)
+                    querry = input()
+
+                    continue                    
+                elif inp == '' or inp == "exit": 
+                    break
 
             if not track_found:
                 print(Fore.red + "Do you want to delete this file: " + Style.reset + Back.red + file + Style.reset + Fore.red + "? (y/n)" + Style.reset)
@@ -330,7 +261,6 @@ def review_missing_songs():
                 if inp == 'y':
                     os.remove(file)
                     print(Fore.red + "File deleted: " + Style.reset + Back.red + file + Style.reset)
-                    not_found -= 1
                 
                 continue
         # else:
@@ -354,34 +284,71 @@ def review_missing_songs():
         print_stats()
 
 def scan_all_files(folder_path):
+    global untagged_files, tagged_files, invalid_files
+
+    # Reset stats
+    untagged_files = []
+    tagged_files = []
+    invalid_files = []
+
+    scan_directory(folder_path)
+
+    print_stats()
+
+def scan_directory(folder_path):
+    global untagged_files
     for file in os.listdir(folder_path):
         if os.path.isfile(folder_path + '/' + file):
             if file.endswith('.mp3'):
-                audiofile = eyed3.load(folder_path + '/' + file)
+                file = os.path.abspath(folder_path + '/' + file)
+                audiofile = eyed3.load(file)
 
                 if audiofile is None:
                     log("File " + file + " returned error from eyed3")
                     print(Fore.red + "File " + file + " returned error from eyed3" + Style.reset)
-                    continue
-
-                if audiofile.tag is None:
+                    untagged_files.append(file)
+                    audiofile.tag.comments.set("Song metadata was not found using Spotigrabber by papastam")
+                    audiofile.tag.save()
+                elif audiofile.tag is None or audiofile.tag.title is None or audiofile.tag.artist is None or audiofile.tag.comments.get("") is None:
                     log("File " + file + " has no tags")
                     print(Fore.red + "File " + file + " has no tags" + Style.reset)
                     untagged_files.append(file)
+                    audiofile.tag.comments.set("Song metadata was not found using Spotigrabber by papastam")
+                    audiofile.tag.save()
+                elif "Song metadata fetched from Spotify using Spotigrabber by papastam" in audiofile.tag.comments.get("").text:
+                    log("File " + file + " already has Spotify tags")
+                    print(Fore.pink_1 + "File " + os.path.basename(file) + " already has Spotify tags." + Style.reset)
+                    tagged_files.append(file)
+                else:
+                    log("File " + file + " has tags")
+                    print(Fore.pink_1 + "File " + os.path.basename(file) + " has no Spotify tags." + Style.reset)
+                    untagged_files.append(file)
+                    audiofile.tag.comments.set("Song metadata was not found using Spotigrabber by papastam")
+                    audiofile.tag.save()                    
+                
+            else:
+                log("File " + file + " is not an mp3 file")
+                print(Fore.red + "File " + file + " is not an mp3 file" + Style.reset)
+                invalid_files.append(file)
+
+    if enable_recursion:
+        for folder in os.listdir(folder_path):
+            if os.path.isdir(folder_path + '/' + folder):
+                scan_directory(folder_path + '/' + folder)
 
 
 def settings():
     global enable_recursion, enable_rename, fast_review, force_overwrite_duplicates, auto_search_results, review_search_results
     while(1):
-        print(Back.yellow + "----- Settings -----" + Style.reset)
-        print(Fore.yellow + "1. Recursive scan" + [" (Enabled)", " (Disabled)"][enable_recursion==True] + Style.reset)
-        print(Fore.yellow + "2. Renaming files" + [" (Enabled)", " (Disabled)"][enable_rename==True] + Style.reset)
-        print(Fore.yellow + "3. Fast review" + [" (Enabled)", " (Disabled)"][fast_review==True] + Style.reset)
-        print(Fore.yellow + "4. Force overwrite duplicates" + [" (Enabled)", " (Disabled)"][force_overwrite_duplicates==True] + Style.reset)
-        print(Fore.yellow + "5. Auto search results" + [" (Enabled)", " (Disabled)"][auto_search_results==True] + Style.reset)
-        print(Fore.yellow + "6. Review search results" + [" (Enabled)", " (Disabled)"][review_search_results==True] + Style.reset)
-        print(Fore.yellow + "7. Automatic search result count (" + str(auto_search_results) + ")" + Style.reset)
-        print(Fore.yellow + "8. Review search result count (" + str(review_search_results) + ")" + Style.reset)
+        print(Fore.yellow + "----- Settings -----" + Style.reset)
+        print(Fore.yellow + "1. Recursive scan " + Style.reset + Back.yellow + ["Enabled", "Disabled"][enable_recursion==True] + Style.reset)
+        print(Fore.yellow + "2. Renaming files " + Style.reset + Back.yellow + ["Enabled", "Disabled"][enable_rename==True] + Style.reset)
+        print(Fore.yellow + "3. Fast review " + Style.reset + Back.yellow + ["Enabled", "Disabled"][fast_review==True] + Style.reset)
+        print(Fore.yellow + "4. Force overwrite duplicates " + Style.reset + Back.yellow + ["Enabled", "Disabled"][force_overwrite_duplicates==True] + Style.reset)
+        print(Fore.yellow + "5. Auto search results " + Style.reset + Back.yellow + ["Enabled", "Disabled"][auto_search_results==True] + Style.reset)
+        print(Fore.yellow + "6. Review search results " + Style.reset + Back.yellow + ["Enabled", "Disabled"][review_search_results==True] + Style.reset)
+        print(Fore.yellow + "7. Automatic search result count " + Style.reset + Back.yellow +  str(auto_search_results) + Style.reset)
+        print(Fore.yellow + "8. Review search result count " + Style.reset + Back.yellow +  str(review_search_results) + Style.reset)
         print(Fore.yellow + "9. Back" + Style.reset)
         print()
         print(Fore.yellow + "Enter your choice:" + Style.reset)
@@ -409,12 +376,12 @@ def settings():
             return
 
 def main():
-    global count, not_found, invalid_files_count, untagged_files, enable_recursion, enable_rename
+    global untagged_files, enable_recursion, enable_rename
 
     print(Fore.cyan + " -------------------------------- " + Style.reset)
-    print(Fore.cyan + "////                          \\\\" + Style.reset)
+    print(Fore.cyan + "////                          \\\\\\\\" + Style.reset)
     print(Fore.cyan + "|||| Spotigrabber by papastam ||||" + Style.reset)
-    print(Fore.cyan + "\\\\                          ////" + Style.reset)
+    print(Fore.cyan + "\\\\\\\\                          ////" + Style.reset)
     print(Fore.cyan + " -------------------------------- " + Style.reset)
     print()
     print(Fore.cyan + "Welcome to Spotigrabber!" + Style.reset)
@@ -422,8 +389,10 @@ def main():
     print()
 
     while(1):
+        print()
+        print(Fore.cyan + "----- Main Menu -----" + Style.reset)
         print(Fore.cyan + "1. Scan all files")
-        print(Fore.cyan + "2. Automatically scan untagged files")
+        print(Fore.cyan + "2. Search Spotify for untagged files")
         print(Fore.cyan + "3. Review untagged files" + Style.reset)
         print(Fore.cyan + "4. Settings" + Style.reset)
         print(Fore.cyan + "5. Exit" + Style.reset)
@@ -432,12 +401,11 @@ def main():
         inp = input()
 
         if inp == '1':
-            
+            scan_all_files(folder_name)
         elif inp == '2':
-            scan_spotify(folder_name)
-            print_stats()
+            search_spotify()
         elif inp == '3':
-            review_missing_songs()
+            manual_search()
         elif inp == '4':
             settings()
         elif inp == '5': 
