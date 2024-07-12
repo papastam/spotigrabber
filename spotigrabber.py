@@ -17,6 +17,7 @@ enable_rename = True
 enable_recursion = True
 fast_review = False
 force_overwrite_duplicates = True
+use_filenames = True
 auto_search_results = 10
 review_search_results = 5
 
@@ -40,8 +41,8 @@ def print_stats():
 def name(message):
     return Style.reset + Back.cyan + message + Style.reset
 
+# Search the song on spotify
 def spotify_complete_tags(song_name, artist_name, audiofile, file):
-    # Search the song on spotify
 
     try:
         results = sp.search(q=song_name+" "+artist_name, limit=auto_search_results)
@@ -71,11 +72,15 @@ def spotify_complete_tags(song_name, artist_name, audiofile, file):
             # Write audio file tags
             write_tags(audiofile, file, result)
 
+            untagged_files.remove(file)
+
             break
 
     if not track_found:
         log("Song "+ song_name +" by "+ artist_name+" was not matched.")
         print(Fore.red + "Song " + Style.reset + Back.red + song_name + Style.reset + Fore.red + " by "+ Style.reset + Back.red + artist_name + Style.reset + Fore.red + " was not matched." + Style.reset)
+        audiofile.tag.comments.set("Song metadata was not found using Spotigrabber by papastam")
+        audiofile.tag.save()
         untagged_files.append(file)
 
 
@@ -130,8 +135,17 @@ def search_spotify():
     if len(untagged_files) == 0:
         print(Fore.red + "No untagged files to search, scan all files first" + Style.reset)
         return
-
-    # INF LOOP
+    
+    # Remove comment tag before processing
+    for file in untagged_files:
+        audiofile = eyed3.load(file)
+        
+        if audiofile.tag is None:
+            audiofile.initTag()
+        
+        audiofile.tag.comments.set("")
+        audiofile.tag.save()
+    
     for file in untagged_files:
         if not os.path.isfile(file):
             print(Fore.red + "File " + file + " does not exist. Skipping this file" + Style.reset)
@@ -147,25 +161,26 @@ def search_spotify():
                 print(Fore.red + "File " + file + " returned error from eyed3" + Style.reset)
                 continue
 
-            if audiofile.tag is None:
-                print(Fore.red + "File " + file + " has no tags. Skipping this file" + Style.reset)
-                untagged_files.append(file)
-                continue
 
             try:
-                if "Song metadata fetched from Spotify using Spotigrabber by papastam" in audiofile.tag.comments.get("").text:
+                if "Song metadata fetched from Spotify using Spotigrabber by papastam" in audiofile.tag.comments.get("").text or "Song metadata was not found using Spotigrabber by papastam" in audiofile.tag.comments.get("").text:
                     print(Fore.pink_1 + "File " + os.path.basename(file) + " already has Spotify tags. Skipping this file" + Style.reset)
                     continue
             except:
                 pass
 
+            
             if audiofile.tag.title is None or audiofile.tag.artist is None:
-                print(Fore.red + "File " + file + " has no tags. Skipping this file" + Style.reset)
-                untagged_files.append(file)
-                continue
-
-            song_name = audiofile.tag.title.split('/')[0].split('(')[0].split("ft.")[0].split("feat.")[0].strip()
-            artist_name = audiofile.tag.artist.split('/')[0].split('(')[0].split("ft.")[0].split("feat.")[0].strip()
+                if use_filenames:
+                    song_name = os.path.basename(file).split('.')[0]
+                    artist_name = ""
+                    print(Fore.yellow + "Song name not found in file tags. Using file name: " + song_name + Style.reset)
+                else:
+                    print(Fore.red + "File " + file + " has no tags. Skipping this file" + Style.reset)
+                    continue
+            else:
+                song_name = audiofile.tag.title.split('/')[0].split('(')[0].split("ft.")[0].split("feat.")[0].strip()
+                artist_name = audiofile.tag.artist.split('/')[0].split('(')[0].split("ft.")[0].split("feat.")[0].strip()
 
             log("Song name: " + song_name)
             log("Artist name: " + artist_name)
@@ -173,9 +188,7 @@ def search_spotify():
 
             spotify_complete_tags(song_name, artist_name, audiofile, file)
            
-
         else:
-            untagged_files.append(file)
             print(Fore.red + "File " + file + " is not an mp3 file"+Style.reset)
 
         log("-----------------End of file: " + file + "-----------------")
@@ -240,7 +253,7 @@ def manual_search():
                 if (inp.isnumeric() and int(inp) > 0 and int(inp) < review_search_results+1) or fast_review:
                     track_found = True
                     # Write audio file tags
-                    write_tags(audiofile,os.path.dirname(os.path.realpath(file)), file, results['tracks']['items'][int(inp)-1])
+                    write_tags(audiofile, file, results['tracks']['items'][int(inp)-1])
 
                     break
                 elif inp == '0':
@@ -303,6 +316,10 @@ def scan_directory(folder_path):
                 file = os.path.abspath(folder_path + '/' + file)
                 audiofile = eyed3.load(file)
 
+                if audiofile.tag is None:
+                    audiofile.initTag()
+
+
                 if audiofile is None:
                     log("File " + file + " returned error from eyed3")
                     print(Fore.red + "File " + file + " returned error from eyed3" + Style.reset)
@@ -347,9 +364,10 @@ def settings():
         print(Fore.yellow + "4. Force overwrite duplicates " + Style.reset + Back.yellow + ["Enabled", "Disabled"][force_overwrite_duplicates==True] + Style.reset)
         print(Fore.yellow + "5. Auto search results " + Style.reset + Back.yellow + ["Enabled", "Disabled"][auto_search_results==True] + Style.reset)
         print(Fore.yellow + "6. Review search results " + Style.reset + Back.yellow + ["Enabled", "Disabled"][review_search_results==True] + Style.reset)
-        print(Fore.yellow + "7. Automatic search result count " + Style.reset + Back.yellow +  str(auto_search_results) + Style.reset)
-        print(Fore.yellow + "8. Review search result count " + Style.reset + Back.yellow +  str(review_search_results) + Style.reset)
-        print(Fore.yellow + "9. Back" + Style.reset)
+        print(Fore.yellow + "7. Use filename for untagged files " + Style.reset + Back.yellow + ["Enabled", "Disabled"][use_filenames==True] + Style.reset)
+        print(Fore.yellow + "8. Automatic search result count " + Style.reset + Back.yellow +  str(auto_search_results) + Style.reset)
+        print(Fore.yellow + "9. Review search result count " + Style.reset + Back.yellow +  str(review_search_results) + Style.reset)
+        print(Fore.yellow + "10. Back" + Style.reset)
         print()
         print(Fore.yellow + "Enter your choice:" + Style.reset)
         inp = input()
@@ -367,12 +385,14 @@ def settings():
         elif inp == '6':
             review_search_results = not review_search_results
         elif inp == '7':
+            use_filenames = not use_filenames
+        elif inp == '8':
             print(Fore.yellow + "Enter the number of automatic search results:" + Style.reset)
             auto_search_results = input()
-        elif inp == '8':
+        elif inp == '9':
             print(Fore.yellow + "Enter the number of review search results:" + Style.reset)
             review_search_results = input()
-        elif inp == '9':
+        elif inp == '10':
             return
 
 def main():
