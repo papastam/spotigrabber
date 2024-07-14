@@ -334,7 +334,7 @@ def scan_directory(folder_path):
                     audiofile.tag.save()
                 elif "Song metadata fetched from Spotify using Spotigrabber by papastam" in audiofile.tag.comments.get("").text:
                     log("File " + file + " already has Spotify tags")
-                    print(Fore.pink_1 + "File " + os.path.basename(file) + " already has Spotify tags." + Style.reset)
+                    print(Fore.green + "File " + os.path.basename(file) + " already has Spotify tags." + Style.reset)
                     tagged_files.append(file)
                 else:
                     log("File " + file + " has tags")
@@ -355,7 +355,7 @@ def scan_directory(folder_path):
 
 
 def settings():
-    global enable_recursion, enable_rename, fast_review, force_overwrite_duplicates, auto_search_results, review_search_results
+    global enable_recursion, enable_rename, fast_review, force_overwrite_duplicates, auto_search_results, review_search_results, use_filenames
     while(1):
         print(Fore.yellow + "----- Settings -----" + Style.reset)
         print(Fore.yellow + "1. Recursive scan " + Style.reset + Back.yellow + ["Enabled", "Disabled"][enable_recursion==True] + Style.reset)
